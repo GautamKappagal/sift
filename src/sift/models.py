@@ -23,6 +23,7 @@ class SlideBlock:
     parent_id: str | None = None
     metadata: dict = field(default_factory=dict)
 
+
 @dataclass
 class Selection:
     """A selection of slide blocks in a presentation.
@@ -37,6 +38,7 @@ class Selection:
     keep_probability: float
     model_version: str
 
+
 @dataclass
 class Note:
     """A note associated with a slide block in a presentation.
@@ -45,5 +47,6 @@ class Note:
         text: The text content of the note.
         source_block_ids: A list of unique identifiers of the slide blocks that the note is associated with.
     """
+
     text: str
     source_block_ids: list[str] = field(default_factory=list)
