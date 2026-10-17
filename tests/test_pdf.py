@@ -1,6 +1,6 @@
 from reportlab.pdfgen import canvas
 
-from sift.parsing.pdf import parse_pdf
+from sift.parsing.pdf_parser import parse_pdf
 
 
 def test_parse_pdf_creates_blocks_and_skips_empty_pages(tmp_path):
