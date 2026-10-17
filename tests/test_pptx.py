@@ -1,3 +1,4 @@
+from pathlib import Path
 from PIL import Image
 from pptx import Presentation
 from pptx.util import Inches
@@ -80,33 +81,21 @@ def test_parse_pptx_restarts_block_numbering_on_each_slide(tmp_path):
     assert blocks[2].id == "os_lec03-s2-b1"
     assert blocks[3].id == "os_lec03-s2-b2"
 
-def test_parse_pptx_flags_slides_with_images(tmp_path):
+def test_parse_pptx_extracts_images_as_blocks(tmp_path):
     img_path = tmp_path / "diagram.png"
     Image.new("RGB", (10, 10)).save(img_path)
 
     path = tmp_path / "os_lec03.pptx"
     prs = Presentation()
-
-    slide_layout = prs.slide_layouts[1]  # Title and Content layout
-
-    # Slide 1: text and a picture
-    slide1 = prs.slides.add_slide(slide_layout)
-    slide1.shapes.title.text = "Resource graph"
-    slide1.placeholders[1].text_frame.text = "See the diagram"
-    slide1.shapes.add_picture(str(img_path), Inches(1), Inches(4))
-
-    # Slide 2: text only
-    slide2 = prs.slides.add_slide(slide_layout)
-    slide2.shapes.title.text = "Banker's algorithm"
-    slide2.placeholders[1].text_frame.text = "Safe state"
-
+    slide = prs.slides.add_slide(prs.slide_layouts[6])  # Blank layout
+    slide.shapes.add_picture(str(img_path), Inches(1), Inches(1))
     prs.save(path)
 
-    blocks = parse_pptx(path)
+    out_dir = tmp_path / "images"
+    blocks = parse_pptx(path, image_dir=out_dir)
 
-    slide1_blocks = [b for b in blocks if b.slide_number == 1]
-    slide2_blocks = [b for b in blocks if b.slide_number == 2]
-
-
-    assert all(b.metadata["warnings"] == ["contains_images"] for b in slide1_blocks)
-    assert all("warnings" not in b.metadata for b in slide2_blocks)
+    assert len(blocks) == 1
+    assert blocks[0].id == "os_lec03-s1-b1"
+    assert blocks[0].block_type == "image"
+    assert blocks[0].text == ""
+    assert Path(blocks[0].metadata["image_path"]).exists()

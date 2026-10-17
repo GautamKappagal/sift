@@ -6,7 +6,7 @@ from pptx.enum.shapes import MSO_SHAPE_TYPE
 from sift.models import SlideBlock
 
 
-def parse_pptx(path: Path) -> list[SlideBlock]:
+def parse_pptx(path: Path, image_dir: Path | None = None) -> list[SlideBlock]:
     """Parse a PPTX file and extract slide blocks.
 
     Args:
@@ -34,7 +34,7 @@ def parse_pptx(path: Path) -> list[SlideBlock]:
                         block = SlideBlock(
                             id=f"{deck}-s{slide_number}-b{counter}",
                             slide_number=slide_number,
-                            text=shape.text_frame.text.strip(),
+                            text=text,
                             block_type="title"
                         )
 
@@ -57,10 +57,22 @@ def parse_pptx(path: Path) -> list[SlideBlock]:
                             if paragraph.level == 0:
                                 curr_top_level_block_id = block.id
 
-        has_image = any(shape.shape_type == MSO_SHAPE_TYPE.PICTURE for shape in slide.shapes)
+            elif shape.shape_type == MSO_SHAPE_TYPE.PICTURE:
+                counter += 1
+                block_id = f"{deck}-s{slide_number}-b{counter}"
+                block = SlideBlock(
+                    id=block_id,
+                    slide_number=slide_number,
+                    text="",
+                    block_type="image"
+                )
 
-        if has_image:
-            for block in blocks[start:]:  # Iterate over the blocks for this slide
-                block.metadata.setdefault("warnings", []).append("contains_images")
+                if image_dir is not None:
+                    image_dir.mkdir(parents=True, exist_ok=True)
+                    image_path = image_dir / f"{block_id}.{shape.image.ext}"
+                    image_path.write_bytes(shape.image.blob)
+                    block.metadata["image_path"] = str(image_path)
+
+                blocks.append(block)
 
     return blocks
