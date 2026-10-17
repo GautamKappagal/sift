@@ -18,29 +18,40 @@ def parse_pptx(path: Path) -> list[SlideBlock]:
     blocks = []
 
     for slide_number, slide in enumerate(Presentation(path).slides, start=1):
+        counter = 0
+        curr_top_level_block_id = None
         # Extract content
         for shape in slide.shapes:
             if shape.has_text_frame:
                 if shape == slide.shapes.title:
-                    block = SlideBlock(
-                        id=f"{deck}-s{slide_number}-b{len(blocks) + 1}",
-                        slide_number=slide_number,
-                        text=shape.text_frame.text.strip(),
-                        block_type="title"
-                    )
+                    text = shape.text_frame.text.strip()
 
-                    blocks.append(block)
+                    if text:
+                        counter += 1
+                        block = SlideBlock(
+                            id=f"{deck}-s{slide_number}-b{counter}",
+                            slide_number=slide_number,
+                            text=shape.text_frame.text.strip(),
+                            block_type="title"
+                        )
+
+                        blocks.append(block)
 
                 else:
                     for paragraph in shape.text_frame.paragraphs:
                         if paragraph.text.strip():
+                            counter += 1
+
+                            parent_id = None if paragraph.level == 0 else curr_top_level_block_id
                             block = SlideBlock(
-                                id=f"{deck}-s{slide_number}-b{len(blocks) + 1}",
+                                id=f"{deck}-s{slide_number}-b{counter}",
                                 slide_number=slide_number,
                                 text=paragraph.text.strip(),
-                                block_type="content"
+                                parent_id=parent_id
                             )
 
                             blocks.append(block)
+                            if paragraph.level == 0:
+                                curr_top_level_block_id = block.id
 
     return blocks
