@@ -15,21 +15,19 @@ def parse_pdf(path: Path) -> list[SlideBlock]:
         list[SlideBlock]: A list of slide blocks extracted from the PDF file.
     """
 
-    reader = PdfReader(path)
+    deck = path.stem.lower()
     blocks = []
 
-    for page_number, page in enumerate(reader.pages):
+    for page_number, page in enumerate(PdfReader(path).pages, start=1):
         text = page.extract_text() or ""
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
 
-        if not text.strip():
-            continue
-
-        blocks.append(
-            SlideBlock(
-                id=f"{path.stem}-page-{page_number + 1}",
-                slide_number=page_number + 1,
-                text=text.strip(),
+        for index, line in enumerate(lines, start=1):
+            block = SlideBlock(
+                id=f"{deck}-s{page_number}-b{index}",
+                slide_number=page_number,
+                text=line,
             )
-        )
+            blocks.append(block)
 
     return blocks
