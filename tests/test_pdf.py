@@ -11,10 +11,10 @@ def test_parse_pdf_creates_blocks_and_skips_empty_pages(tmp_path):
     c = canvas.Canvas(str(path))
     c.drawString(100, 750, "Deadlock")
     c.drawString(100, 720, "Four necessary conditions for deadlock")
-    c.showPage()  # Create a new page (empty)
-    c.showPage()  # Create another new page (empty)
+    c.showPage()    # End page 1
+    c.showPage()    # End page 2
     c.drawString(100, 750, "Banker's algorithm")
-    c.showPage()  # Create a new page (empty)
+    c.showPage()  # End page 3
     c.save()
 
     blocks = parse_pdf(path)

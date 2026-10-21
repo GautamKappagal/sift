@@ -10,9 +10,10 @@ def parse_pdf(path: Path, image_dir: Path | None = None) -> list[SlideBlock]:
 
     Args:
         path (Path): The path to the PDF file.
+        image_dir (Path | None): Folder to save extracted images into. If None, images are still returned as blocks but are not written to disk.
 
     Returns:
-        list[SlideBlock]: A list of slide blocks extracted from the PDF file.
+        list[SlideBlock]: One block per non-empty text line, plus one block per embedded image.
     """
 
     deck = path.stem.lower()

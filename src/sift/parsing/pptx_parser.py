@@ -11,9 +11,10 @@ def parse_pptx(path: Path, image_dir: Path | None = None) -> list[SlideBlock]:
 
     Args:
         path (Path): The path to the PPTX file.
+        image_dir (Path | None): Folder to save extracted images into. If None, images are still returned as blocks but are not written to disk.
 
     Returns:
-        list[SlideBlock]: A list of slide blocks extracted from the PPTX file.
+        list[SlideBlock]: One block per non-empty title or paragraph, plus one block per picture.
     """
     deck = path.stem.lower()
     blocks = []

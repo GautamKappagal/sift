@@ -2,7 +2,7 @@
 
 Sift moves information through these stages:
 
-PDF or PPTX → parsing → SlideBlock → selection → Selection → composing → Note
+PDF or PPTX (more formats later) → parsing → SlideBlock → selection → Selection → composing → Note
 
 - `parsing`: extracts content from files
 - `selection`: decides which blocks matter
@@ -14,31 +14,35 @@ All modules communicate through the shared classes in `models.py`.
 
 # Parsing
 
+Callers never check what format a file is. They call `parse_document(path, image_dir)`, which picks the right parser from the file extension and raises `ValueError` for unsupported types. Each parser lives in `parsing/` and is named `<format>_parser.py`. Adding a format means writing one parser and adding one line to the `PARSERS` dictionary.
+
 ## What is a block?
 
-A block is the smallest unit of text in a document that can stand alone as a "keep or skip" decision.
+A block is the smallest unit of content in a document that can stand alone as a "keep or skip" decision.
 
-A whole slide is too corase, because one slide often mixes an essential definition with a throwaway example.
+A whole slide is too coarse, because one slide often mixes an essential definition with a throwaway example.
 
-A line is too fine, because PDFs wrap sentences across lines which would lead the model to judging half-sentences.
+A line is too fine, because PDFs wrap sentences across lines, which would lead the model to judge half-sentences.
 
-Hence, a bullet or paragraph is the sweet spot.
+A bullet or paragraph is the sweet spot. Images are blocks too.
 
-## Defining Block IDs
+Block types: `title`, `text` (the default) and `image`.
 
-Format: {deck}-s{slide}-b{index}
-Example: os_lec03-s12-b2
+## Block IDs
 
-Deck is the filename without its extension (Path.stem), loweracsed. This is what keeps IDs unique across decks.
+Format: `{deck}-s{slide}-b{index}`
+Example: `os_lec03-s12-b2`
 
-Slide is the 1-based slide or page number, matching what one sees when one opens the file.
+- Deck is the filename without its extension (`Path.stem`), lowercased. This keeps IDs unique across decks.
+- Slide is the 1-based slide or page number, matching what you see when you open the file.
+- Index is the block's 1-based position within that slide. Text and images share one numbering and restart on every slide.
 
-Index is the block's 1-based position within that slide, in reading order.
+IDs must stay stable: hand labels will refer to them, so changing the splitting rules after labeling starts can silently break the labels.
 
-## Warnings
-Principle: the parser should never silently drop content it knows it can't read.
+## Hierarchy
 
-Concretely:
-- We store warnings as a list in metadata["warnings"], so one block can carry several without redesigning later.
-- If a slide has no extractable text but does have an image, we don't skip it. We emit a placeholder block with block_type="image_only", empty text and a warning. That keeps the slide visible in the output, so it shows up later as "partially prcoessed" instead of vanishing.
-- For slides that have both text and images, we attach "contains_images" to that slide's blocks.
+In PPTX, a paragraph at indent level 1 or deeper gets the most recent level-0 block on the same slide as its `parent_id`. Titles are never parents. This is what lets the selector later keep a whole group together.
+
+## Images
+
+The parser never silently drops content it cannot read. Every embedded image becomes a block with `block_type="image"` and empty text. If an `image_dir` is given, the image file is saved there, named after the block ID, and its location is stored in `metadata["image_path"]`. A slide that

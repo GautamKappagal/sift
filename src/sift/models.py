@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 
 @dataclass
 class SlideBlock:
-    """A block of slides in a presentation.
+    """One block of content (a title, bullet, line of text or image) on one slide or page.
 
     Attributes:
         id: The unique identifier of the slide block.

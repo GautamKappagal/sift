@@ -1,0 +1,489 @@
+=== docs/architecture.md ===
+# Architecture
+
+Sift moves information through these stages:
+
+PDF or PPTX → parsing → SlideBlock → selection → Selection → composing → Note
+
+- `parsing`: extracts content from files
+- `selection`: decides which blocks matter
+- `composing`: turns selected blocks into notes
+- `verification`: checks a note against its sources
+- `pyq`: relates material to previous-year questions
+
+All modules communicate through the shared classes in `models.py`.
+
+# Parsing
+
+## What is a block?
+
+A block is the smallest unit of text in a document that can stand alone as a "keep or skip" decision.
+
+A whole slide is too corase, because one slide often mixes an essential definition with a throwaway example.
+
+A line is too fine, because PDFs wrap sentences across lines which would lead the model to judging half-sentences.
+
+Hence, a bullet or paragraph is the sweet spot.
+
+## Defining Block IDs
+
+Format: {deck}-s{slide}-b{index}
+Example: os_lec03-s12-b2
+
+Deck is the filename without its extension (Path.stem), loweracsed. This is what keeps IDs unique across decks.
+
+Slide is the 1-based slide or page number, matching what one sees when one opens the file.
+
+Index is the block's 1-based position within that slide, in reading order.
+
+## Warnings
+Principle: the parser should never silently drop content it knows it can't read.
+
+Concretely:
+- We store warnings as a list in metadata["warnings"], so one block can carry several without redesigning later.
+- If a slide has no extractable text but does have an image, we don't skip it. We emit a placeholder block with block_type="image_only", empty text and a warning. That keeps the slide visible in the output, so it shows up later as "partially prcoessed" instead of vanishing.
+- For slides that have both text and images, we attach "contains_images" to that slide's blocks.
+=== docs/decisions/0001-from-scratch-ml.md ===
+# ADR 0001: From-scratch ML
+
+## Context
+
+I want to understand how training, gradients and neural networks work instead of just using a finished tool.
+
+## Decision
+
+I will first implement autograd and a small neural network from scratch.
+
+## Consequences
+
+I will compare it with simple baseline models like logistic regression and other rule-based approaches. This may be less accurate or slower than using an ML library, but it will help me understand the training process.
+=== src/sift/__init__.py ===
+
+=== src/sift/cli.py ===
+def main():
+    print("Sift")
+
+=== src/sift/composing/__init__.py ===
+
+=== src/sift/models.py ===
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+
+@dataclass
+class SlideBlock:
+    """A block of slides in a presentation.
+
+    Attributes:
+        id: The unique identifier of the slide block.
+        slide_number: The number of the slide in the presentation.
+        text: The text content of the slide block.
+        block_type: The type of the slide block (default is "text").
+        parent_id: The unique identifier of the parent slide block (if any).
+        metadata: Additional metadata associated with the slide block.
+    """
+
+    id: str
+    slide_number: int
+    text: str
+    block_type: str = "text"
+    parent_id: str | None = None
+    metadata: dict = field(default_factory=dict)
+
+
+@dataclass
+class Selection:
+    """A selection of slide blocks in a presentation.
+
+    Attributes:
+        block_id: The unique identifier of the selected slide block.
+        keep_probability: The probability of keeping the selected slide block.
+        model_version: The version of the model used for selection.
+    """
+
+    block_id: str
+    keep_probability: float
+    model_version: str
+
+
+@dataclass
+class Note:
+    """A note associated with a slide block in a presentation.
+
+    Attributes:
+        text: The text content of the note.
+        source_block_ids: A list of unique identifiers of the slide blocks that the note is associated with.
+    """
+
+    text: str
+    source_block_ids: list[str] = field(default_factory=list)
+
+=== src/sift/parsing/__init__.py ===
+from pathlib import Path
+
+from sift.models import SlideBlock
+from sift.parsing.pdf_parser import parse_pdf
+from sift.parsing.pptx_parser import parse_pptx
+
+PARSERS = {".pdf": parse_pdf, ".pptx": parse_pptx}
+
+
+def parse_document(path: Path, image_dir: Path | None = None) -> list[SlideBlock]:
+    suffix = path.suffix.lower()
+
+    if suffix not in PARSERS:
+        raise ValueError(f"Unsupported file type: {suffix}")
+
+    return PARSERS[suffix](path, image_dir=image_dir)
+=== src/sift/parsing/pdf_parser.py ===
+from pathlib import Path
+
+from pypdf import PdfReader
+
+from sift.models import SlideBlock
+
+
+def parse_pdf(path: Path, image_dir: Path | None = None) -> list[SlideBlock]:
+    """Parse a PDF file and extract slide blocks.
+
+    Args:
+        path (Path): The path to the PDF file.
+
+    Returns:
+        list[SlideBlock]: A list of slide blocks extracted from the PDF file.
+    """
+
+    deck = path.stem.lower()
+    blocks = []
+
+    for page_number, page in enumerate(PdfReader(path).pages, start=1):
+        counter = 0 # Restarts on every page
+
+        text = page.extract_text() or ""
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+
+        for line in lines:
+            counter += 1
+            blocks.append(
+                SlideBlock(
+                    id=f"{deck}-s{page_number}-b{counter}",
+                    slide_number=page_number,
+                    text=line
+                )
+            )
+
+        for image in page.images:
+            counter += 1
+            block_id = f"{deck}-s{page_number}-b{counter}"
+            block = SlideBlock (
+                id=block_id,
+                slide_number=page_number,
+                text="",
+                block_type="image"
+            )
+
+            if image_dir is not None:
+                image_dir.mkdir(parents=True, exist_ok=True)
+                image_path = image_dir / f"{block_id}{Path(image.name).suffix}"
+                image_path.write_bytes(image.data)
+                block.metadata["image_path"] = str(image_path)
+
+            blocks.append(block)
+
+    return blocks
+
+=== src/sift/parsing/pptx_parser.py ===
+from pathlib import Path
+
+from pptx import Presentation
+from pptx.enum.shapes import MSO_SHAPE_TYPE
+
+from sift.models import SlideBlock
+
+
+def parse_pptx(path: Path, image_dir: Path | None = None) -> list[SlideBlock]:
+    """Parse a PPTX file and extract slide blocks.
+
+    Args:
+        path (Path): The path to the PPTX file.
+
+    Returns:
+        list[SlideBlock]: A list of slide blocks extracted from the PPTX file.
+    """
+    deck = path.stem.lower()
+    blocks = []
+
+    for slide_number, slide in enumerate(Presentation(path).slides, start=1):
+        counter = 0
+        curr_top_level_block_id = None
+
+        # Extract content
+        for shape in slide.shapes:
+            if shape.has_text_frame:
+                if shape == slide.shapes.title:
+                    text = shape.text_frame.text.strip()
+
+                    if text:
+                        counter += 1
+                        block = SlideBlock(
+                            id=f"{deck}-s{slide_number}-b{counter}",
+                            slide_number=slide_number,
+                            text=text,
+                            block_type="title"
+                        )
+
+                        blocks.append(block)
+
+                else:
+                    for paragraph in shape.text_frame.paragraphs:
+                        if paragraph.text.strip():
+                            counter += 1
+
+                            parent_id = None if paragraph.level == 0 else curr_top_level_block_id
+                            block = SlideBlock(
+                                id=f"{deck}-s{slide_number}-b{counter}",
+                                slide_number=slide_number,
+                                text=paragraph.text.strip(),
+                                parent_id=parent_id
+                            )
+
+                            blocks.append(block)
+                            if paragraph.level == 0:
+                                curr_top_level_block_id = block.id
+
+            elif shape.shape_type == MSO_SHAPE_TYPE.PICTURE:
+                counter += 1
+                block_id = f"{deck}-s{slide_number}-b{counter}"
+                block = SlideBlock(
+                    id=block_id,
+                    slide_number=slide_number,
+                    text="",
+                    block_type="image"
+                )
+
+                if image_dir is not None:
+                    image_dir.mkdir(parents=True, exist_ok=True)
+                    image_path = image_dir / f"{block_id}.{shape.image.ext}"
+                    image_path.write_bytes(shape.image.blob)
+                    block.metadata["image_path"] = str(image_path)
+
+                blocks.append(block)
+
+    return blocks
+=== src/sift/pyq/__init__.py ===
+
+=== src/sift/selection/__init__.py ===
+
+=== src/sift/verification/__init__.py ===
+
+=== tests/test_models.py ===
+from sift.models import SlideBlock
+
+
+def test_slide_block_defaults():
+    block = SlideBlock(
+        id="block-1",
+        slide_number=1,
+        text="Deadlock occurs when processes wait indefinitely.",
+    )
+
+    assert block.parent_id is None
+    assert block.block_type == "text"
+
+
+def test_slide_blocks_have_independent_metadata():
+    block1 = SlideBlock(
+        id="block-1",
+        slide_number=1,
+        text="Definition of deadlock",
+    )
+
+    block2 = SlideBlock(
+        id="block-2",
+        slide_number=1,
+        text="Example of deadlock",
+    )
+
+    block1.metadata["category"] = "definition"
+
+    assert block1.metadata["category"] == "definition"
+    assert block2.metadata == {}
+
+=== tests/test_parse_document.py ===
+import pytest
+
+from pptx import Presentation
+from reportlab.pdfgen import canvas
+
+from sift.parsing import parse_document
+
+
+def test_parse_document_picks_parser_by_extension(tmp_path):
+    pdf_path = tmp_path / "a.pdf"
+    c = canvas.Canvas(str(pdf_path))
+    c.drawString(100, 750, "Hello")
+    c.showPage()
+    c.save()
+
+    pptx_path = tmp_path / "b.pptx"
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[1])
+    slide.shapes.title.text = "Hello"
+    prs.save(pptx_path)
+
+    assert parse_document(pdf_path)[0].text == "Hello"
+    assert parse_document(pptx_path)[0].text == "Hello"
+
+def test_parse_document_rejects_unknown_extension(tmp_path):
+    path = tmp_path / "notes.xyz"
+    path.write_text("x")
+
+    with pytest.raises(ValueError):
+        parse_document(path)
+=== tests/test_pdf.py ===
+from pathlib import Path
+from PIL import Image
+from reportlab.pdfgen import canvas
+
+from sift.parsing.pdf_parser import parse_pdf
+
+
+def test_parse_pdf_creates_blocks_and_skips_empty_pages(tmp_path):
+    path = tmp_path / "os_lec03.pdf"
+
+    c = canvas.Canvas(str(path))
+    c.drawString(100, 750, "Deadlock")
+    c.drawString(100, 720, "Four necessary conditions for deadlock")
+    c.showPage()  # Create a new page (empty)
+    c.showPage()  # Create another new page (empty)
+    c.drawString(100, 750, "Banker's algorithm")
+    c.showPage()  # Create a new page (empty)
+    c.save()
+
+    blocks = parse_pdf(path)
+
+    assert {b.slide_number for b in blocks} == {1, 3}
+    assert blocks[0].id == "os_lec03-s1-b1"
+    assert blocks[0].text == "Deadlock"
+
+def test_parse_pdf_extracts_images_as_blocks(tmp_path):
+    img_path = tmp_path / "diagram.png"
+    Image.new("RGB", (10, 10)).save(img_path)
+
+    path = tmp_path / "os_lec03.pdf"
+    c = canvas.Canvas(str(path))
+    c.drawImage(str(img_path), 100, 500, width=100, height=100)
+    c.showPage()
+    c.save()
+
+    out_dir = tmp_path / "images"
+    blocks = parse_pdf(path, image_dir=out_dir)
+
+    assert len(blocks) == 1
+    assert blocks[0].id == "os_lec03-s1-b1"
+    assert blocks[0].block_type == "image"
+    assert blocks[0].text == ""
+    assert Path(blocks[0].metadata["image_path"]).exists()
+=== tests/test_pptx.py ===
+from pathlib import Path
+from PIL import Image
+from pptx import Presentation
+from pptx.util import Inches
+
+from sift.parsing.pptx_parser import parse_pptx
+
+
+def test_parse_pptx_reads_title_and_bullets(tmp_path):
+    path = tmp_path / "os_lec03.pptx"
+
+    prs = Presentation()
+    slide_layout = prs.slide_layouts[1]  # Title and Content layout
+    slide = prs.slides.add_slide(slide_layout)
+
+    slide.shapes.title.text = "Deadlock"
+
+    body = slide.placeholders[1].text_frame
+    body.text = "Mutual exclusion"
+    body.add_paragraph().text = "Hold and wait"
+
+    prs.save(path)
+
+    blocks = parse_pptx(path)
+
+    assert [b.text for b in blocks] == ["Deadlock", "Mutual exclusion", "Hold and wait"]
+    assert blocks[0].block_type == "title"
+    assert blocks[1].id == "os_lec03-s1-b2"
+
+def test_parse_pptx_links_nested_bullets_to_parent(tmp_path):
+    path = tmp_path / "os_lec03.pptx"
+
+    prs = Presentation()
+    slide_layout = prs.slide_layouts[1]  # Title and Content layout
+    slide = prs.slides.add_slide(slide_layout)
+    body = slide.placeholders[1].text_frame
+
+    body.text = "Deadlock requires four conditions"
+    p = body.add_paragraph()
+    p.text = "Mutual exclusion"
+    p.level = 1
+
+    p = body.add_paragraph()
+    p.text = "Hold and wait"
+    p.level = 1
+
+    body.add_paragraph().text = "Example: two trains on one track"
+
+    prs.save(path)
+
+    blocks = parse_pptx(path)
+
+    assert blocks[0].parent_id is None
+    assert blocks[1].parent_id == blocks[0].id
+    assert blocks[2].parent_id == blocks[0].id
+    assert blocks[3].parent_id is None
+
+def test_parse_pptx_restarts_block_numbering_on_each_slide(tmp_path):
+    path = tmp_path / "os_lec03.pptx"
+
+    prs = Presentation()
+    slide_layout = prs.slide_layouts[1]  # Title and Content layout
+
+    # Slide 1
+    slide1 = prs.slides.add_slide(slide_layout)
+    slide1.shapes.title.text = "Deadlock"
+    slide1.placeholders[1].text_frame.text = "Mutual exclusion"
+
+    # Slide 2
+    slide2 = prs.slides.add_slide(slide_layout)
+    slide2.shapes.title.text = "Banker's algorithm"
+    slide2.placeholders[1].text_frame.text = "Safe state"
+
+    prs.save(path)
+
+    blocks = parse_pptx(path)
+
+    #blocks is one flat list: [s1-title, s1-bullet, s2-title, s2-bullet]
+    assert blocks[0].id == "os_lec03-s1-b1"
+    assert blocks[1].id == "os_lec03-s1-b2"
+    assert blocks[2].id == "os_lec03-s2-b1"
+    assert blocks[3].id == "os_lec03-s2-b2"
+
+def test_parse_pptx_extracts_images_as_blocks(tmp_path):
+    img_path = tmp_path / "diagram.png"
+    Image.new("RGB", (10, 10)).save(img_path)
+
+    path = tmp_path / "os_lec03.pptx"
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[6])  # Blank layout
+    slide.shapes.add_picture(str(img_path), Inches(1), Inches(1))
+    prs.save(path)
+
+    out_dir = tmp_path / "images"
+    blocks = parse_pptx(path, image_dir=out_dir)
+
+    assert len(blocks) == 1
+    assert blocks[0].id == "os_lec03-s1-b1"
+    assert blocks[0].block_type == "image"
+    assert blocks[0].text == ""
+    assert Path(blocks[0].metadata["image_path"]).exists()
