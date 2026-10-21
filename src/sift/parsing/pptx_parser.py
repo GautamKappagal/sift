@@ -21,7 +21,6 @@ def parse_pptx(path: Path, image_dir: Path | None = None) -> list[SlideBlock]:
     for slide_number, slide in enumerate(Presentation(path).slides, start=1):
         counter = 0
         curr_top_level_block_id = None
-        start = len(blocks)  # Store the starting index of blocks for this slide
 
         # Extract content
         for shape in slide.shapes:
