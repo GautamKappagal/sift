@@ -7,10 +7,10 @@ from sift.parsing.pptx_parser import parse_pptx
 PARSERS = {".pdf": parse_pdf, ".pptx": parse_pptx}
 
 
-def parse_document(path: Path) -> list[SlideBlock]:
+def parse_document(path: Path, image_dir: Path | None = None) -> list[SlideBlock]:
     suffix = path.suffix.lower()
 
     if suffix not in PARSERS:
         raise ValueError(f"Unsupported file type: {suffix}")
 
-    return PARSERS[suffix](path)
+    return PARSERS[suffix](path, image_dir=image_dir)
