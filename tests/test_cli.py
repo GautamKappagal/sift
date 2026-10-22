@@ -3,6 +3,7 @@ from reportlab.pdfgen import canvas
 
 from sift.cli import main
 
+
 def test_parse_command_prints_blocks(tmp_path, capsys):
     path = tmp_path / "os_lec03.pdf"
     c = canvas.Canvas(str(path))

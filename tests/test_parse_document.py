@@ -1,5 +1,4 @@
 import pytest
-
 from pptx import Presentation
 from reportlab.pdfgen import canvas
 

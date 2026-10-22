@@ -1,4 +1,5 @@
 from pathlib import Path
+
 from PIL import Image
 from reportlab.pdfgen import canvas
 

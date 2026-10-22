@@ -1,4 +1,5 @@
 from pathlib import Path
+
 from PIL import Image
 from pptx import Presentation
 from pptx.util import Inches
