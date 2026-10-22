@@ -1,6 +1,6 @@
-import argparse
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 
 from sift.parsing import parse_document
